@@ -1,3 +1,11 @@
+library(httr)
+library(jsonlite)
+#library(dplyr)
+library(tidyverse)
+library(devtools)
+#devtools::install_github("FantasyFootballAnalytics/ffanalytics")
+library(ffanalytics)
+
 #Scrape projections, commenting out sites that don't have them yet
 season_scrape <- ffanalytics::scrape_data(src = c(  
   "CBS",
