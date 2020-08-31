@@ -7,7 +7,7 @@ ballsPerTeam <- c(20480, 10240, 5120, 2560, 1280, 640, 320, 160, 80, 40, 20, 10)
 maxSpotsMoveUp <- 3
 maxSpotsSlide <- 3
 
-invertedStandings <- c("Willis", "Josh C", "Evan", "Brendan", "Tristen", "Pinyard", "Jack", "Pat", "Josh K", "Ryan", "Ben", "Nick")
+invertedStandings <- c("Willis", "Josh C", "Evan", "Brenden", "Tristan", "Pinyard", "Jack", "Pat", "Josh K", "Ryan", "Ben", "Nick")
 numPlayers <- 12
 
 # Build the lottery balls vector
@@ -66,8 +66,8 @@ nSims <- 10000
 showOdds(nSims, lotteryBalls, numPlayers, maxSpotsMoveUp, maxSpotsSlide, invertedStandings)
 
 showFullResults <- function(results){
-  print("If these results are displayed all at once before they are revealed pick by pick, the lottery is VOID")
-  print(results)
+  cat("If these results are displayed all at once before they are revealed pick by pick, the lottery is VOID \n\n")
+  cat(rev(results), sep="\n")
 }
 
 showResultsOneAtATime <- function(results, numPlayers){
