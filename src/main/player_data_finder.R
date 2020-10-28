@@ -86,28 +86,35 @@ seasonMatchups <- map_dfr(.x = 1:12, .f = ~getMatchupsList(lid, .x))
 seasonMatchupsDf <- rosterList %>% 
   select(owner_id, roster_id) %>% 
   left_join(seasonMatchups, by = c("roster_id")) %>% 
-  as_tibble() %>% 
   arrange(matchup_week, roster_id) %>% 
   left_join(ownerList %>% select(user_id, display_name),
-            by = c("owner_id" = "user_id"))
-
-
-season_table <- seasonMatchupsDf %>% 
+            by = c("owner_id" = "user_id")) %>% 
   group_by(matchup_week, matchup_id) %>% 
-  mutate(winning_matchup_score = max(points),
-         losing_matchup_score = min(points),
+  mutate(winning_matchup_score = max(points, na.rm = T),
+         losing_matchup_score = min(points, na.rm = T),
          win = case_when(
+           points == 0 ~ 0,
            winning_matchup_score == points ~ 1,
-           points < winning_matchup_score ~ 0),
+           losing_matchup_score == points ~ 0),
          loss = case_when(
+           points == 0 ~ 0,
            losing_matchup_score == points ~ 1,
-           points > losing_matchup_score ~ 0),
+           winning_matchup_score == points ~ 0),
          opponent_points = case_when(
            win == 1 ~ losing_matchup_score,
            loss == 1 ~ winning_matchup_score),
-         opponent_display_name = str_c(display_name, collapse = "") %>% 
-           map2_chr(.x = ., .y = display_name, .f = ~sub(.y, "", .x))) %>% 
+         opponent_display_name = str_c(display_name, collapse = "")) %>%
   ungroup() %>% 
+  mutate(opponent_display_name = map2_chr(.x = opponent_display_name,
+                                          .y = display_name,
+                                          .f = ~sub(.y, "", .x))) %>% 
+  group_by(matchup_week) %>% 
+  mutate(week_max_points = max(points, na.rm = T),
+         team_strength = case_when(
+          points > 0 ~ points / week_max_points)) %>% 
+  ungroup()
+  
+season_table <- seasonMatchupsDf %>% 
   group_by(owner_id, display_name) %>% 
   summarise(wins = sum(win, na.rm = T),
             losses = sum(loss, na.rm = T),
@@ -116,5 +123,7 @@ season_table <- seasonMatchupsDf %>%
             total_season_points_scored = sum(points, na.rm = T),
             total_season_points_against = sum(opponent_points, na.rm = T),
             avg_ppg = mean(points, na.rm = T),
-            avg_opponent_ppg = mean(opponent_points, na.rm = T))
+            avg_opponent_ppg = mean(opponent_points, na.rm = T),
+            team_strength = mean(team_strength, na.rm = T),
+            .groups = "drop")
 
