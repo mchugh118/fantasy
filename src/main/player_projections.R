@@ -1,56 +1,116 @@
+#devtools::install_github("FantasyFootballAnalytics/ffanalytics")
+#install.packages("nflfastR")
+#install.packages('reclin')
 library(httr)
 library(jsonlite)
-#library(dplyr)
 library(tidyverse)
 library(devtools)
-#devtools::install_github("FantasyFootballAnalytics/ffanalytics")
 library(ffanalytics)
+library(nflfastR)
+library(janitor)
+library(lubridate)
+library(reclin)
 
 #Scrape projections, commenting out sites that don't have them yet
-season_scrape <- ffanalytics::scrape_data(src = c(  
-  "CBS",
-  "ESPN",
-  "FantasyData",
-  "FantasyPros",
-  #"FantasySharks",
-  #"FleaFlicker",
-  #"NumberFire",
-  #"Yahoo"
-  "FantasyFootballNerd",
-  #"NFL",
-  #"RTSports",
-  "Walterfootball"
-),
-pos = c("QB", "RB", "WR", "TE", "K", "DST"),
-season = year,
-week = 0)
+week_8_scrape <- ffanalytics::scrape_data(
+  src = c(
+    "CBS",
+    "ESPN",
+    "FantasyData",
+    "FantasyPros",
+    "FantasySharks",
+    "FFToday",
+    "NumberFire",
+    "Yahoo",
+    "FantasyFootballNerd",
+    "NFL"
+  ),
+  pos = c("QB", "RB", "WR", "TE", "K", "DST"),
+  season = 2020,
+  week = 8)
 
-season_projections <- projections_table(data_result = season_scrape) %>%
-  add_player_info()
+#Calculate projections and add player info
+week_8_projections <- projections_table(data_result = week_8_scrape) %>%
+  add_player_info() %>% 
+  filter(avg_type == "robust")
 
-positions <- playerList %>% 
-  pluck("position") %>%
-  unlist() %>%
-  enframe() %>%
-  select(player_id = name, position = value)
+#Get all players in the ffanalytics player database (to be used for matching)
+ff_player_data <- ffanalytics::ff_player_data
 
-player_mapping_db <- playerDf %>%
-  as_tibble() %>%
-  inner_join(positions, by = "player_id") %>%
-  rename(sleeper_player_id = player_id) %>%
-  separate(player_name, c("first_name", "last_name"), " ", remove = F) %>%
-  mutate_at(c("first_name", "last_name"), ~gsub('[[:punct:] ]+', "", .)) %>%
-  filter(position %in% c("QB", "RB", "WR", "TE", "K", "DST"))
 
-player_table <- player_table %>%
-  mutate_at(c("first_name", "last_name"), ~gsub('[[:punct:] ]+', "", .))
+#Get all players on current rosters
+playersOnRosters <- rosterList %>% select(players) %>% pull() %>% unlist()
 
-player_mapping_db <- player_mapping_db %>%
-  left_join(player_table, by = c("first_name", "last_name", "position")) %>%
-  select(sleeper_player_id, first_name, last_name, position, id, team)
+#Create Df of all players and relevant information
+playerMappingDf <- tibble(
+  sleeperPlayerID = playerList %>% names(),
+  sleeperPlayerName = paste0(map_chr(playerList, c("first_name"), .default = NA),
+                             " ", map_chr(playerList, c("last_name"), .default = NA)),
+  sleeperPlayerPosition = map_chr(playerList, c("position"), .default = NA),
+  sleeperPlayerTeam = map_chr(playerList, c("team"), .default = NA),
+  birthdate = map_chr(playerList, c("birth_date"), .default = NA) %>% 
+    lubridate::ymd(),
+  espn_id = map_dbl(playerList, c("espn_id"), .default = NA)) %>% 
+  group_by(espn_id) %>% 
+  mutate(n = n()) %>% 
+  ungroup() %>% 
+  filter(xor(sleeperPlayerPosition == "DEF", n < 2)) %>% 
+  select(-n) %>% 
+  filter(sleeperPlayerID %in% playersOnRosters)
 
-test <- season_projections %>%
-  left_join(player_mapping_db, by = c("first_name", "last_name", "position", "id", "team"))
+#Get team abbreviations from sleeper
+sleeper_team_abrev <- playerMappingDf %>%
+  filter(!is.na(sleeperPlayerTeam)) %>%
+  distinct(sleeperPlayerTeam) %>%
+  arrange(sleeperPlayerTeam)
+
+#Get team abbreviations from ffanalytics
+ff_analytics_team_abrev <- ff_player_data %>%
+  filter(!grepl("FA", team, ignore.case = T)) %>% 
+  distinct(team) %>%
+  arrange(team)
+
+#Bind columns for a lookup table (same number of rows)
+team_abbrev_mapping <- sleeper_team_abrev %>% bind_cols(ff_analytics_team_abrev)
+sleeperPositionVec <- playerMappingDf %>% distinct(sleeperPlayerPosition) %>% pull()
+
+#Gather and prepare ffanalytics table for matching
+proj_player_table <- ff_player_data %>% 
+  left_join(team_abbrev_mapping, by = "team") %>% 
+  mutate(position = case_when(
+           position == "DST" ~ "DEF",
+           TRUE ~ position)
+         ) %>% 
+  filter(position %in% sleeperPositionVec) %>% 
+  select(id, sleeperPlayerName = name, sleeperPlayerPosition = position,
+         birthdate, sleeperPlayerTeam)
+
+
+#Run probabilistic matching on the two sets and gather one result for each sleeperID
+fullPlayerMappingDF <- reclin::pair_blocking(playerMappingDf, proj_player_table,
+                               c("sleeperPlayerTeam", "sleeperPlayerPosition")) %>% 
+  compare_pairs(by = c("sleeperPlayerName", "birthdate"), default_comparator = jaro_winkler(0.9)) %>% 
+  score_problink(var = "weight") %>% 
+  select_threshold(threshold = 8) %>% 
+  select_n_to_m() %>% 
+  link() %>% 
+  filter(!is.na(sleeperPlayerID)) %>% 
+  select(sleeperPlayerID, ffanalyticsPlayerID = id,
+         sleeperPlayerName = sleeperPlayerName.x,
+         sleeperPlayerPosition = sleeperPlayerPosition.x,
+         sleeperPlayerTeam = sleeperPlayerTeam.x,
+         ffanalyticsPlayerName = sleeperPlayerName.y)
+
+
+#Join projections Df with playerMappings
+sleeperWeek8_projections <- fullPlayerMappingDF %>% 
+  left_join(week_8_projections, by = c("ffanalyticsPlayerID" = "id"))
+
+##To do: 
+### - add our specific rules for projections calculations
+### - deal with NA values for inactive players (adding in 0's)
+### - add in player stuff into the app
+
 
 
 
