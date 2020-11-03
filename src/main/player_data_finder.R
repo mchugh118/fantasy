@@ -9,8 +9,6 @@ library(jsonlite)
 library(devtools)
 library(tidyverse)
 
-
-
 lids <- c("515645615373778944")
 years <- c(2020)
 lid <- lids[1]
