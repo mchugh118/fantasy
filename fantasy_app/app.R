@@ -176,7 +176,10 @@ forecasts <- season_table %>%
            team_strength = team_strength * 100) %>% 
     select(display_name, all_of(current_standings_cols), all_of(rating_cols), all_of(playoff_cols))
 
-
+receiver_prod <- All_WR %>% 
+    #mutate(image_src = paste0("player_headshot_images/", receiver_id, ".png")) %>% 
+    mutate(image_src = headshot_url) %>% 
+    select(full_name, image_src, targets, receptions)
 
 
 # Define UI for application that draws a histogram
@@ -205,13 +208,25 @@ ui <- fluidPage(
     # Application title
     titlePanel("Fantasy Football"),
     
-    div(class = "standings",
-        div(class = "title",
-            h2("2020 Grandview Dynasty League"),
-            "Current standings and playoff projections"),
-        reactable::reactableOutput("season_table"),
-        "Standings as of Week 6"
-    )
+    #tags$img(src = "player_headshot_images/00-0034170.png"),
+    
+    tabsetPanel(type = "pills",
+                tabPanel("League",
+                         div(class = "standings",
+                             div(class = "title",
+                                 h2("2020 Grandview Dynasty League"),
+                                 "Current standings and playoff projections"),
+                             reactable::reactableOutput("season_table"),
+                             "Standings as of Week 6"
+                         )),
+                tabPanel("Players",
+                         div(class = "standings",
+                             div(class = "title"),
+                             h2("All Receivers"),
+                                "Displaying all stats for receivers"),
+                             reactable::reactableOutput("receivers_table"),
+                             "some text"
+                         ))
 )
 
 # Define server logic required to draw a histogram
@@ -247,10 +262,30 @@ server <- function(input, output) {
     )
     
     
-    output$season_table <- reactable::renderReactable(
-        tbl
+    receivers_tbl <- reactable(
+        receiver_prod,
+        defaultColDef = colDef(class = "cell", headerClass = "header"),
+        columns = list(
+            full_name = colDef(name = "Player", maxWidth = 200),
+            image_src = colDef(name = "IMG",
+                               cell = function(value){
+                                   img(src = value, height = "40px")
+                               }),
+            targets = colDef(name = "Targets"),
+            receptions = colDef(name = "receptions")
+        )
     )
+    
+    output$season_table <- reactable::renderReactable({
+        tbl
+    })
+    
+    output$receivers_table <- reactable::renderReactable({
+        receivers_tbl
+    })
+
 }
 
-# Run the application 
+# Run the application
+addResourcePath('player_headshot_images', 'C:/Users/Willis Day/Desktop/fantasy/fantasy/player_headshot_images/')
 shinyApp(ui = ui, server = server)
