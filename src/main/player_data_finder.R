@@ -81,15 +81,20 @@ rosterDf <- getRosterDf(rosterList, playerDf)
 ownersAndRosters <- merge(ownerDf, rosterDf, by="owner_id")
 
 seasonMatchups <- map_dfr(.x = 1:12, .f = ~getMatchupsList(lid, .x))
-seasonMatchupsDf <- rosterList %>% 
+seasonMatchupsDf_raw <- rosterList %>% 
   select(owner_id, roster_id) %>% 
   left_join(seasonMatchups, by = c("roster_id")) %>% 
   arrange(matchup_week, roster_id) %>% 
   left_join(ownerList %>% select(user_id, display_name),
-            by = c("owner_id" = "user_id")) %>% 
+            by = c("owner_id" = "user_id"))
+  
+seasonMatchupsDf <- seasonMatchupsDf_raw %>% 
+  filter(!is.na(points)) %>% 
   group_by(matchup_week, matchup_id) %>% 
-  mutate(winning_matchup_score = max(points, na.rm = T),
-         losing_matchup_score = min(points, na.rm = T),
+  mutate(winning_matchup_score = case_when(
+            !is.na(points) ~ max(points, na.rm = T)),
+         losing_matchup_score = case_when(
+            !is.na(points) ~ min(points, na.rm = T)),
          win = case_when(
            points == 0 ~ 0,
            winning_matchup_score == points ~ 1,
@@ -107,9 +112,10 @@ seasonMatchupsDf <- rosterList %>%
                                           .y = display_name,
                                           .f = ~sub(.y, "", .x))) %>% 
   group_by(matchup_week) %>% 
-  mutate(week_max_points = max(points, na.rm = T),
-         team_strength = case_when(
-          points > 0 ~ points / week_max_points)) %>% 
+  mutate(week_max_points = case_when(
+    !is.na(points) ~ max(points, na.rm = T)),
+    team_strength = case_when(
+      !is.na(points) & points > 0 ~ points / week_max_points)) %>% 
   ungroup()
   
 season_table <- seasonMatchupsDf %>% 
